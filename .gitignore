@@ -6,6 +6,10 @@ config*.json
 logfile.txt
 user_data/*
 !user_data/strategy/sample_strategy.py
+!user_data/strategies/
+!user_data/strategies/**
+!user_data/configs/
+!user_data/configs/*.example.json
 !user_data/notebooks
 !user_data/models
 !user_data/freqaimodels
