@@ -44,6 +44,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--proxy", default="http://127.0.0.1:7897")
     parser.add_argument("--delay-seconds", type=float, default=1.0)
     parser.add_argument("--max-retries", type=int, default=5)
+    parser.add_argument(
+        "--checkpoint-pages",
+        type=int,
+        default=20,
+        help="Write accumulated candles after this many successful API pages.",
+    )
     return parser.parse_args()
 
 
@@ -94,8 +100,7 @@ def fetch_page(exchange, arguments: argparse.Namespace, cursor_ms: int) -> list[
                 raise
             wait_seconds = arguments.delay_seconds * (2**attempt)
             print(
-                f"{type(error).__name__}. Waiting {wait_seconds:.1f}s before retry "
-                f"{attempt + 1}."
+                f"{type(error).__name__}. Waiting {wait_seconds:.1f}s before retry {attempt + 1}."
             )
             time.sleep(wait_seconds)
     raise RuntimeError("Unreachable retry state.")
@@ -112,8 +117,7 @@ def load_markets(exchange, arguments: argparse.Namespace) -> None:
                 raise
             wait_seconds = arguments.delay_seconds * (2**attempt)
             print(
-                f"{type(error).__name__}. Waiting {wait_seconds:.1f}s before retry "
-                f"{attempt + 1}."
+                f"{type(error).__name__}. Waiting {wait_seconds:.1f}s before retry {attempt + 1}."
             )
             time.sleep(wait_seconds)
 
@@ -126,6 +130,8 @@ def serial_download(arguments: argparse.Namespace) -> None:
         raise ValueError("--delay-seconds must be greater than zero.")
     if arguments.max_retries < 1:
         raise ValueError("--max-retries must be at least one.")
+    if arguments.checkpoint_pages < 1:
+        raise ValueError("--checkpoint-pages must be at least one.")
 
     timeframe_ms = timeframe_to_msecs(arguments.timeframe)
     start_ms = int(arguments.start.timestamp() * 1000)
@@ -152,10 +158,14 @@ def serial_download(arguments: argparse.Namespace) -> None:
     stored = data_handler.ohlcv_load(
         arguments.pair, arguments.timeframe, CandleType.SPOT, timerange=None, fill_missing=False
     )
-    raw_candles = [
-        [int(row.date.timestamp() * 1000), row.open, row.high, row.low, row.close, row.volume]
-        for row in stored.itertuples(index=False)
-    ]
+    candles_by_timestamp = {
+        candle[0]: candle
+        for candle in [
+            [int(row.date.timestamp() * 1000), row.open, row.high, row.low, row.close, row.volume]
+            for row in stored.itertuples(index=False)
+        ]
+    }
+    pages_since_checkpoint = 0
 
     while cursor_ms < end_ms:
         page = fetch_page(exchange, arguments, cursor_ms)
@@ -164,14 +174,14 @@ def serial_download(arguments: argparse.Namespace) -> None:
             timestamp = datetime.fromtimestamp(cursor_ms / 1000, UTC)
             raise RuntimeError(f"OKX returned no candles at {timestamp!s}.")
 
-        raw_candles.extend(page)
-        raw_candles = sorted(
-            {candle[0]: candle for candle in raw_candles}.values(), key=lambda candle: candle[0]
-        )
-        store_candles(data_handler, arguments.pair, arguments.timeframe, raw_candles)
-
+        candles_by_timestamp.update({candle[0]: candle for candle in page})
+        pages_since_checkpoint += 1
         cursor_ms = page[-1][0] + timeframe_ms
-        print(f"Stored through {datetime.fromtimestamp(page[-1][0] / 1000, UTC).isoformat()}.")
+        if pages_since_checkpoint == arguments.checkpoint_pages or cursor_ms >= end_ms:
+            raw_candles = sorted(candles_by_timestamp.values(), key=lambda candle: candle[0])
+            store_candles(data_handler, arguments.pair, arguments.timeframe, raw_candles)
+            print(f"Stored through {datetime.fromtimestamp(page[-1][0] / 1000, UTC).isoformat()}.")
+            pages_since_checkpoint = 0
         if cursor_ms < end_ms:
             time.sleep(arguments.delay_seconds)
 
