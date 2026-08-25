@@ -100,6 +100,7 @@ def run_period(
     targets: pd.DataFrame,
     holding_returns: pd.DataFrame,
     cost_rate: float,
+    rebalance_hours: int = REBALANCE_HOURS,
 ) -> BacktestResult:
     """Simulate a cash-starting period with proportional one-way transaction costs."""
     start, end = (pd.Timestamp(value) for value in PERIODS[name])
@@ -134,7 +135,7 @@ def run_period(
     returns = pd.Series(net_returns, dtype=float)
     curve = pd.Series(equity_curve, dtype=float)
     drawdown = curve.div(curve.cummax()).sub(1.0).min()
-    annualization = np.sqrt(365 * 24 / REBALANCE_HOURS)
+    annualization = np.sqrt(365 * 24 / rebalance_hours)
     sharpe = (
         0.0 if returns.std(ddof=0) == 0 else annualization * returns.mean() / returns.std(ddof=0)
     )
