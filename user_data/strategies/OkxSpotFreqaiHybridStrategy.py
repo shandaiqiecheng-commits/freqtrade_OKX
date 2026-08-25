@@ -8,8 +8,6 @@ from functools import reduce
 
 import talib.abstract as ta
 from pandas import DataFrame
-from technical import qtpylib
-
 from freqtrade.strategy import IStrategy
 
 
@@ -26,7 +24,8 @@ class OkxSpotFreqaiHybridStrategy(IStrategy):
     minimal_roi = {"0": 0.03}
     stoploss = -0.05
     trailing_stop = False
-    use_exit_signal = True
+    # Control backtest: isolate the effect of entries by using only ROI and stoploss exits.
+    use_exit_signal = False
 
     order_types = {
         "entry": "limit",
@@ -106,14 +105,5 @@ class OkxSpotFreqaiHybridStrategy(IStrategy):
         return dataframe
 
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        """Exit when the forecast turns adverse or the trend breaks down."""
-        conditions = [
-            dataframe["do_predict"] == 1,
-            (
-                (dataframe["&-future_return"] < dataframe["ai_exit_threshold"])
-                | qtpylib.crossed_below(dataframe["ema_fast"], dataframe["ema_slow"])
-            ),
-            dataframe["volume"] > 0,
-        ]
-        dataframe.loc[reduce(lambda left, right: left & right, conditions), "exit_long"] = 1
+        """Leave exit signals disabled for the entry-quality control backtest."""
         return dataframe
