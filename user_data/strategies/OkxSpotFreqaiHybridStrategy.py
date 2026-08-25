@@ -4,11 +4,13 @@ This strategy is intended for historical research only until it has passed the
 project's backtest and dry-run acceptance criteria.
 """
 
+from datetime import datetime, timedelta
 from functools import reduce
 
 import talib.abstract as ta
 from pandas import DataFrame
-from freqtrade.strategy import IStrategy
+from freqtrade.persistence import Trade
+from freqtrade.strategy import IStrategy, timeframe_to_minutes
 
 
 class OkxSpotFreqaiHybridStrategy(IStrategy):
@@ -24,8 +26,8 @@ class OkxSpotFreqaiHybridStrategy(IStrategy):
     minimal_roi = {"0": 0.03}
     stoploss = -0.05
     trailing_stop = False
-    # Control backtest: isolate the effect of entries by using only ROI and stoploss exits.
-    use_exit_signal = False
+    # The only exit signal is the label-horizon timeout in custom_exit.
+    use_exit_signal = True
 
     order_types = {
         "entry": "limit",
@@ -105,5 +107,22 @@ class OkxSpotFreqaiHybridStrategy(IStrategy):
         return dataframe
 
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        """Leave exit signals disabled for the entry-quality control backtest."""
+        """Keep dataframe-based exit signals disabled for the horizon control backtest."""
         return dataframe
+
+    def custom_exit(
+        self,
+        pair: str,
+        trade: Trade,
+        current_time: datetime,
+        current_rate: float,
+        current_profit: float,
+        **kwargs,
+    ) -> str | None:
+        """Exit when the holding period reaches the FreqAI target horizon."""
+        label_periods = self.freqai_info["feature_parameters"]["label_period_candles"]
+        horizon = timedelta(minutes=label_periods * timeframe_to_minutes(self.timeframe))
+
+        if current_time >= trade.open_date_utc + horizon:
+            return "label_horizon_elapsed"
+        return None
