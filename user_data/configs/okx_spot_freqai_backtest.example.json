@@ -14,6 +14,9 @@
     "key": "",
     "secret": "",
     "password": "",
+    "ccxt_config": {
+      "httpsProxy": "http://127.0.0.1:7897"
+    },
     "pair_whitelist": [
       "BTC/USDT",
       "ETH/USDT"
